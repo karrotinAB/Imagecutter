@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>이미지 분할 도구</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f3;
+      color: #1a1a1a;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: #1a1a1a;
+    }
+    .wrap {
+      display: flex;
+      gap: 16px;
+      height: 640px;
+    }
+    .panel {
+      background: #fff;
+      border: 0.5px solid #ddd;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .panel-title {
+      font-size: 13px;
+      color: #888;
+      padding: 10px 14px;
+      border-bottom: 0.5px solid #eee;
+      flex-shrink: 0;
+    }
+    .canvas-wrap {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      position: relative;
+    }
+    #upload-area {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+    #upload-area:hover { background: #fafafa; }
+    #upload-area svg { width: 36px; height: 36px; stroke: #ccc; }
+    #img-canvas-wrap {
+      position: relative;
+      display: none;
+      cursor: crosshair;
+    }
+    #img-canvas-wrap img { width: 100%; display: block; }
+    .cut-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: #e24b4a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 4px;
+      z-index: 10;
+    }
+    .cut-line:hover { background: #a32d2d; }
+    .cut-x {
+      font-size: 11px;
+      color: white;
+      background: #e24b4a;
+      border-radius: 3px;
+      padding: 0 4px;
+      line-height: 16px;
+      pointer-events: none;
+    }
+    .preview-wrap {
+      flex: 1;
+      overflow: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .preview-row {
+      display: flex;
+      gap: 4px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+    .preview-seg img {
+      display: block;
+      border: 0.5px solid #ddd;
+      border-radius: 4px;
+    }
+    .seg-label {
+      font-size: 10px;
+      color: #aaa;
+      text-align: center;
+      margin-bottom: 2px;
+    }
+    .bottom {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      border-top: 0.5px solid #eee;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .hint { font-size: 12px; color: #aaa; flex: 1; }
+    .btn {
+      font-size: 13px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 0.5px solid #ccc;
+      background: transparent;
+      color: #1a1a1a;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #f5f5f3; }
+    .btn-primary {
+      background: #1a1a1a;
+      color: #fff;
+      border-color: #1a1a1a;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+    .empty-preview {
+      font-size: 13px;
+      color: #aaa;
+      text-align: center;
+      padding: 2rem 1rem;
+      width: 100%;
+      line-height: 1.8;
+    }
+    #result-area {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      flex-shrink: 0;
+    }
+    #result-area p {
+      font-size: 12px;
+      color: #aaa;
+      text-align: center;
+    }
+    #result-img {
+      width: 100%;
+      border: 0.5px solid #ddd;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>이미지 분할 도구</h1>
+
+  <div class="wrap">
+    <!-- 왼쪽: 원본 이미지 -->
+    <div class="panel">
+      <div class="panel-title">원본 이미지 — 클릭해서 분할선 추가 / 분할선 클릭하면 삭제</div>
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div id="upload-area" onclick="document.getElementById('file-input').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12M8 8l4-4 4 4"/>
+          </svg>
+          <span>클릭해서 이미지 업로드</span>
+          <span style="font-size:12px">JPG, PNG 지원</span>
+        </div>
+        <div id="img-canvas-wrap">
+          <img id="main-img" src="" alt="업로드된 이미지" />
+        </div>
+      </div>
+      <div class="bottom">
+        <span class="hint" id="hint-text">분할선: 0개</span>
+        <button class="btn" onclick="resetAll()">초기화</button>
+        <button class="btn btn-primary" onclick="finalize()">분할 완료</button>
+      </div>
+    </div>
+
+    <!-- 오른쪽: 미리보기 -->
+    <div class="panel">
+      <div class="panel-title">가로 배치 미리보기 (높이 균일 · 300px 기준)</div>
+      <div class="preview-wrap" id="preview-wrap">
+        <div class="empty-preview" id="empty-msg">이미지를 업로드하고<br>분할선을 추가하면<br>미리보기가 나타나요</div>
+        <div class="preview-row" id="preview-row" style="display:none"></div>
+        <div id="result-area">
+          <p>우클릭 → 이미지 저장 (모바일: 길게 누르기)</p>
+          <img id="result-img" alt="가로 합본 결과" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" accept="image/*" style="display:none" onchange="loadImage(event)" />
+
+  <script>
+    const PREVIEW_H = 300;
+
+    let imgEl = document.getElementById('main-img');
+    let imgWrap = document.getElementById('img-canvas-wrap');
+    let uploadArea = document.getElementById('upload-area');
+    let previewRow = document.getElementById('preview-row');
+    let emptyMsg = document.getElementById('empty-msg');
+    let resultArea = document.getElementById('result-area');
+    let resultImg = document.getElementById('result-img');
+    let hintText = document.getElementById('hint-text');
+    let cutLines = [];
+    let imgSrc = '';
+    let naturalImg = new Image();
+
+    function loadImage(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        imgSrc = ev.target.result;
+        naturalImg = new Image();
+        naturalImg.onload = function() {
+          imgEl.src = imgSrc;
+          imgEl.onload = function() {
+            uploadArea.style.display = 'none';
+            imgWrap.style.display = 'block';
+            cutLines = [];
+            resultArea.style.display = 'none';
+            renderLines();
+            updatePreview();
+          };
+        };
+        naturalImg.src = imgSrc;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    imgWrap.addEventListener('click', function(e) {
+      if (e.target.classList.contains('cut-line') || e.target.classList.contains('cut-x')) return;
+      const rect = imgWrap.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const pct = y / imgWrap.offsetHeight;
+      if (pct < 0.02 || pct > 0.98) return;
+      cutLines.push(pct);
+      cutLines.sort((a, b) => a - b);
+      resultArea.style.display = 'none';
+      renderLines();
+      updatePreview();
+    });
+
+    function renderLines() {
+      document.querySelectorAll('.cut-line').forEach(el => el.remove());
+      cutLines.forEach((pct, i) => {
+        const line = document.createElement('div');
+        line.className = 'cut-line';
+        line.style.top = (pct * 100) + '%';
+        line.innerHTML = '<span class="cut-x">✕ 삭제</span>';
+        line.addEventListener('click', function(e) {
+          e.stopPropagation();
+          cutLines.splice(i, 1);
+          renderLines();
+          updatePreview();
+        });
+        imgWrap.appendChild(line);
+      });
+      hintText.textContent = '분할선: ' + cutLines.length + '개 → ' + (cutLines.length + 1) + '조각';
+    }
+
+    function getSegments() {
+      const bounds = [0, ...cutLines, 1];
+      const segs = [];
+      for (let i = 0; i < bounds.length - 1; i++) segs.push({ from: bounds[i], to: bounds[i+1] });
+      return segs;
+    }
+
+    function cropToCanvas(pctFrom, pctTo) {
+      const nw = naturalImg.naturalWidth;
+      const nh = naturalImg.naturalHeight;
+      const y0 = Math.round(pctFrom * nh);
+      const y1 = Math.round(pctTo * nh);
+      const segH = y1 - y0;
+      const c = document.createElement('canvas');
+      c.width = nw;
+      c.height = segH;
+      c.getContext('2d').drawImage(naturalImg, 0, y0, nw, segH, 0, 0, nw, segH);
+      return c;
+    }
+
+    function resizeCanvas(srcCanvas, targetH) {
+      const ratio = targetH / srcCanvas.height;
+      const newW = Math.round(srcCanvas.width * ratio);
+      const c = document.createElement('canvas');
+      c.width = newW;
+      c.height = targetH;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(srcCanvas, 0, 0, newW, targetH);
+      return c;
+    }
+
+    function updatePreview() {
+      if (!imgSrc) return;
+      const segs = getSegments();
+      if (segs.length === 1) {
+        emptyMsg.style.display = 'block';
+        previewRow.style.display = 'none';
+        return;
+      }
+      emptyMsg.style.display = 'none';
+      previewRow.style.display = 'flex';
+      previewRow.innerHTML = '';
+
+      segs.forEach((seg, i) => {
+        const raw = cropToCanvas(seg.from, seg.to);
+        const resized = resizeCanvas(raw, PREVIEW_H);
+        const col = document.createElement('div');
+        col.className = 'preview-seg';
+        col.innerHTML = '<div class="seg-label">' + (i+1) + '번</div>';
+        const img = document.createElement('img');
+        img.src = resized.toDataURL('image/png');
+        img.style.height = PREVIEW_H + 'px';
+        img.style.width = resized.width + 'px';
+        img.alt = '조각 ' + (i+1);
+        col.appendChild(img);
+        previewRow.appendChild(col);
+      });
+    }
+
+    function finalize() {
+      if (!imgSrc || cutLines.length === 0) {
+        alert('이미지를 업로드하고 분할선을 하나 이상 추가해주세요.');
+        return;
+      }
+      const segs = getSegments();
+      const rawCanvases = segs.map(seg => cropToCanvas(seg.from, seg.to));
+      const minH = Math.min(...rawCanvases.map(c => c.height));
+      const normalized = rawCanvases.map(c => resizeCanvas(c, minH));
+
+      const totalW = normalized.reduce((s, c) => s + c.width, 0);
+      const final = document.createElement('canvas');
+      final.width = totalW;
+      final.height = minH;
+      const ctx = final.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, totalW, minH);
+      let x = 0;
+      normalized.forEach(c => { ctx.drawImage(c, x, 0); x += c.width; });
+
+      resultImg.src = final.toDataURL('image/png');
+      resultArea.style.display = 'flex';
+      setTimeout(() => resultArea.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+
+    function resetAll() {
+      cutLines = [];
+      imgSrc = '';
+      imgEl.src = '';
+      imgWrap.style.display = 'none';
+      uploadArea.style.display = 'flex';
+      previewRow.style.display = 'none';
+      previewRow.innerHTML = '';
+      emptyMsg.style.display = 'block';
+      resultArea.style.display = 'none';
+      hintText.textContent = '분할선: 0개';
+      document.getElementById('file-input').value = '';
+    }
+  </script>
+</body>
+</html>
