@@ -284,6 +284,12 @@
           <img id="result-img" alt="가로 합본 결과" />
         </div>
       </div>
+      <div class="bottom">
+        <input type="text" id="save-title" placeholder="파일 제목" title="저장 파일 이름: 제목_01.png, 제목_02.png …"
+          style="flex:1; min-width:0; font-size:13px; padding:6px 10px; border:0.5px solid #ccc; border-radius:8px">
+        <button class="btn" onclick="saveSegments()">개별 저장</button>
+        <button class="btn btn-primary" onclick="saveMerged()">합본 저장</button>
+      </div>
     </div>
   </div>
 
@@ -376,6 +382,7 @@
     function loadImage(e) {
       const file = e.target.files[0];
       if (!file) return;
+      document.getElementById('save-title').value = file.name.replace(/\.[^.]+$/, '');
       const reader = new FileReader();
       reader.onload = function(ev) { loadImageSrc(ev.target.result); };
       reader.readAsDataURL(file);
@@ -525,6 +532,13 @@
         alert('이미지를 업로드하고 분할선을 하나 이상 추가해주세요.');
         return;
       }
+      const final = buildMerged();
+      resultImg.src = final.toDataURL('image/png');
+      resultArea.style.display = 'flex';
+      setTimeout(() => resultArea.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+
+    function buildMerged() {
       const segs = getSegments();
       const rawCanvases = segs.map(seg => cropToCanvas(seg.from, seg.to));
       let final;
@@ -551,10 +565,52 @@
         let y = 0;
         normalized.forEach(c => { ctx.drawImage(c, 0, y); y += c.height; });
       }
+      return final;
+    }
 
-      resultImg.src = final.toDataURL('image/png');
-      resultArea.style.display = 'flex';
-      setTimeout(() => resultArea.scrollIntoView({ behavior: 'smooth' }), 100);
+    /* ───────── 저장 ───────── */
+    function saveTitle() {
+      const t = document.getElementById('save-title').value.trim().replace(/[\\/:*?"<>|]+/g, '_');
+      return t || 'image';
+    }
+
+    function downloadCanvas(canvas, filename) {
+      return new Promise(resolve => canvas.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        resolve();
+      }, 'image/png'));
+    }
+
+    function checkReady() {
+      if (!imgSrc || cutLines.length === 0) {
+        alert('이미지를 업로드하고 분할선을 하나 이상 추가해주세요.');
+        return false;
+      }
+      return true;
+    }
+
+    // 조각을 원본 해상도 그대로 {제목}_01.png, {제목}_02.png … 로 저장
+    async function saveSegments() {
+      if (!checkReady()) return;
+      const title = saveTitle();
+      const segs = getSegments();
+      const pad = String(segs.length).length < 2 ? 2 : String(segs.length).length;
+      for (let i = 0; i < segs.length; i++) {
+        const c = cropToCanvas(segs[i].from, segs[i].to);
+        await downloadCanvas(c, title + '_' + String(i + 1).padStart(pad, '0') + '.png');
+        await new Promise(r => setTimeout(r, 250)); // 브라우저가 연속 다운로드를 막지 않도록 간격
+      }
+    }
+
+    function saveMerged() {
+      if (!checkReady()) return;
+      downloadCanvas(buildMerged(), saveTitle() + '_합본.png');
     }
 
     function resetAll() {
