@@ -254,14 +254,28 @@
           <button class="btn" style="padding:3px 10px; font-size:12px" onclick="equalSplit()">똑같이 나누기</button>
         </div>
         <div class="split-dir">
-          <label><input type="checkbox" id="fit-on" onchange="onFitChange()"> 고정 크기 칸에 맞추기</label>
+          <label><input type="checkbox" id="fit-on" onchange="onFitChange()"> 정사각형 칸에 맞추기</label>
           <span id="fit-opts" style="display:none; gap:6px; align-items:center; flex-wrap:wrap">
-            <input type="number" id="fit-w" min="8" max="4096" value="128" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> ×
-            <input type="number" id="fit-h" min="8" max="4096" value="128" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px
-            <span style="margin-left:6px">여백</span>
-            <input type="number" id="fit-pad" min="0" max="200" value="4" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px
-            <label style="margin-left:6px" title="끄면 조각마다 각각 칸에 꽉 차게 맞춰요"><input type="checkbox" id="fit-same" checked onchange="onFitChange()"> 모든 조각 같은 비율</label>
+            <input type="number" id="fit-w" min="8" max="4096" value="512" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> ×
+            <input type="number" id="fit-h" min="8" max="4096" value="512" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px
+            <select id="fit-mode" onchange="onFitChange()" style="font-size:12px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px">
+              <option value="char">캐릭터 규격 맞춤</option>
+              <option value="center">단순 중앙 맞춤</option>
+            </select>
+            <label><input type="checkbox" id="fit-guide" checked onchange="updatePreview()"> 가이드선 보기</label>
           </span>
+        </div>
+        <div class="split-dir" id="spec-opts" style="display:none; flex-wrap:wrap; row-gap:6px">
+          <span title="128px 칸 기준 값이에요. 칸 크기에 비례해서 자동으로 늘어나요 (512면 4배)">규격 (128 기준)</span>
+          <label>발바닥 선 <input type="number" id="sp-feet" value="120" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"></label>
+          <label>키 <input type="number" id="sp-height" value="108" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"></label>
+          <label>좌우 최소 여백 <input type="number" id="sp-margin" value="4" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"></label>
+          <label>벽 동작 왼쪽 <input type="number" id="sp-wall" value="22" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"></label>
+          <label title="이 번호 조각(서 있는 모습)의 키를 기준으로 모든 조각에 같은 배율을 적용해요">키 기준 조각 <input type="number" id="sp-ref" value="1" min="1" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()">번</label>
+        </div>
+        <div class="split-dir" id="center-opts" style="display:none">
+          <label>여백 <input type="number" id="fit-pad" min="0" max="400" value="16" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px</label>
+          <label title="끄면 조각마다 각각 칸에 꽉 차게 맞춰요"><input type="checkbox" id="fit-same" checked onchange="onFitChange()"> 모든 조각 같은 비율</label>
         </div>
       </div>
       <div class="canvas-wrap" id="canvas-wrap">
@@ -407,6 +421,7 @@
             uploadArea.style.display = 'none';
             imgWrap.style.display = 'block';
             cutLines = [];
+            pieceOpts = [];
             resultArea.style.display = 'none';
             renderLines();
             updatePreview();
@@ -511,14 +526,35 @@
 
     /* ───────── 고정 크기 칸 맞추기 ───────── */
     function fitOn() { return document.getElementById('fit-on').checked; }
+    function fitMode() { return document.getElementById('fit-mode').value; }
+    const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : v; };
+
+    // 조각별 설정: pose = 'floor'(서기·바닥) | 'wall'(왼쪽 벽) | 'center', flip = 좌우 뒤집기
+    let pieceOpts = [];
+    function pieceOpt(i) {
+      if (!pieceOpts[i]) pieceOpts[i] = { pose: 'floor', flip: false };
+      return pieceOpts[i];
+    }
 
     function onFitChange() {
-      document.getElementById('fit-opts').style.display = fitOn() ? 'inline-flex' : 'none';
+      const on = fitOn(), mode = fitMode();
+      document.getElementById('fit-opts').style.display = on ? 'inline-flex' : 'none';
+      document.getElementById('spec-opts').style.display = on && mode === 'char' ? 'flex' : 'none';
+      document.getElementById('center-opts').style.display = on && mode === 'center' ? 'flex' : 'none';
       resultArea.style.display = 'none';
       updatePreview();
     }
 
-    // 조각의 배경(가장자리에서 가장 흔한 색, 또는 투명)을 기준으로 내용 영역(bbox)을 찾음
+    function flipCanvas(src) {
+      const c = document.createElement('canvas');
+      c.width = src.width; c.height = src.height;
+      const ctx = c.getContext('2d');
+      ctx.translate(src.width, 0); ctx.scale(-1, 1);
+      ctx.drawImage(src, 0, 0);
+      return c;
+    }
+
+    // 조각의 배경(가장자리에서 가장 흔한 색, 또는 투명)을 기준으로 내용 영역(bbox)과 머리 중심 x를 찾음
     function contentBox(c) {
       const w = c.width, h = c.height;
       const d = c.getContext('2d').getImageData(0, 0, w, h).data;
@@ -536,57 +572,123 @@
       counts.forEach((v, k) => { if (v.n > best) { best = v.n; bgKey = k; bgI = v.i; } });
       const transparentBg = bgKey === 'T';
       const br = d[bgI], bgc = d[bgI+1], bb = d[bgI+2];
+      const isFg = i => {
+        if (d[i+3] < 20) return false;
+        if (transparentBg) return true;
+        const dr = d[i] - br, dg = d[i+1] - bgc, db = d[i+2] - bb;
+        return dr*dr + dg*dg + db*db >= 40*40;
+      };
       let x0 = w, y0 = h, x1 = -1, y1 = -1;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4;
-          if (d[i+3] < 20) continue;
-          if (!transparentBg) {
-            const dr = d[i] - br, dg = d[i+1] - bgc, db = d[i+2] - bb;
-            if (dr*dr + dg*dg + db*db < 40*40) continue;
-          }
+          if (!isFg((y * w + x) * 4)) continue;
           if (x < x0) x0 = x; if (x > x1) x1 = x;
           if (y < y0) y0 = y; if (y > y1) y1 = y;
         }
       }
       const fill = transparentBg ? null : 'rgb(' + br + ',' + bgc + ',' + bb + ')';
-      if (x1 < 0) return { x: 0, y: 0, w, h, fill };   // 내용 없음 → 전체
-      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, fill };
+      if (x1 < 0) return { x: 0, y: 0, w, h, headCx: w / 2, fill };   // 내용 없음 → 전체
+      // 머리 중심: 내용 위쪽 40% 영역에 있는 픽셀들의 가로 평균 위치
+      let sum = 0, cnt = 0;
+      const yEnd = y0 + Math.max(1, Math.round((y1 - y0 + 1) * 0.4));
+      for (let y = y0; y < yEnd; y++) {
+        for (let x = x0; x <= x1; x++) if (isFg((y * w + x) * 4)) { sum += x; cnt++; }
+      }
+      const headCx = (cnt ? sum / cnt : (x0 + x1) / 2) - x0;
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, headCx, fill };
     }
 
+    // 각 조각을 W×H 칸에 배치. 반환: [{ canvas, place:{dx,dy,dw,dh}, overflow }]
     function fitPieces(raws) {
-      const W = Math.max(1, +document.getElementById('fit-w').value || 128);
-      const H = Math.max(1, +document.getElementById('fit-h').value || 128);
-      const pad = Math.max(0, +document.getElementById('fit-pad').value || 0);
-      const boxes = raws.map(contentBox);
-      const scaleOf = b => Math.min((W - 2 * pad) / b.w, (H - 2 * pad) / b.h);
-      const common = Math.min(...boxes.map(scaleOf));   // 가장 큰 조각 기준 → 캐릭터 크기 통일
-      const same = document.getElementById('fit-same').checked;
-      return raws.map((raw, i) => {
-        const b = boxes[i];
-        const sc = same ? common : scaleOf(b);
+      const W = Math.max(1, num('fit-w', 512)), H = Math.max(1, num('fit-h', 512));
+      const srcs = raws.map((r, i) => pieceOpt(i).flip ? flipCanvas(r) : r);
+      const boxes = srcs.map(contentBox);
+      const mode = fitMode();
+      let scales;
+      if (mode === 'char') {
+        const kx = W / 128, ky = H / 128;
+        const ref = boxes[Math.min(boxes.length, Math.max(1, num('sp-ref', 1))) - 1];
+        const s = num('sp-height', 108) * ky / ref.h;      // 기준 조각의 키가 규격 키가 되도록, 모든 조각 동일 배율
+        scales = boxes.map(() => s);
+      } else {
+        const pad = Math.max(0, num('fit-pad', 0));
+        const scaleOf = b => Math.min((W - 2 * pad) / b.w, (H - 2 * pad) / b.h);
+        const common = Math.min(...boxes.map(scaleOf));
+        scales = boxes.map(b => document.getElementById('fit-same').checked ? common : scaleOf(b));
+      }
+      return srcs.map((src, i) => {
+        const b = boxes[i], sc = scales[i];
         const dw = b.w * sc, dh = b.h * sc;
+        let dx = (W - dw) / 2, dy = (H - dh) / 2;
+        if (mode === 'char') {
+          const kx = W / 128, ky = H / 128;
+          const m = num('sp-margin', 4) * kx;
+          const pose = pieceOpt(i).pose;
+          if (pose !== 'center') dy = num('sp-feet', 120) * ky - dh;          // 발바닥을 발바닥 선에
+          if (pose === 'floor') {
+            dx = W / 2 - b.headCx * sc;                                        // 머리를 가운데로
+            if (dw <= W - 2 * m) dx = Math.min(Math.max(dx, m), W - m - dw);   // 좌우 최소 여백 보장
+          } else if (pose === 'wall') {
+            dx = num('sp-wall', 22) * kx;                                      // 몸 왼쪽 끝을 벽 위치에
+          }
+        }
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d');
         if (b.fill) { ctx.fillStyle = b.fill; ctx.fillRect(0, 0, W, H); }
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(raw, b.x, b.y, b.w, b.h, (W - dw) / 2, (H - dh) / 2, dw, dh);
-        return c;
+        ctx.drawImage(src, b.x, b.y, b.w, b.h, dx, dy, dw, dh);
+        const overflow = dx < -0.5 || dy < -0.5 || dx + dw > W + 0.5 || dy + dh > H + 0.5;
+        return { canvas: c, place: { dx, dy, dw, dh }, overflow };
       });
     }
 
-    // 저장·미리보기에 쓰는 최종 조각들
+    // 저장·합본에 쓰는 최종 조각들
     function getPieces() {
       const raws = getSegments().map(seg => cropToCanvas(seg.from, seg.to));
-      return fitOn() ? fitPieces(raws) : raws;
+      return fitOn() ? fitPieces(raws).map(p => p.canvas) : raws;
+    }
+
+    // 미리보기용: 가이드선을 겹쳐 그린 복사본 (저장 파일에는 안 들어감)
+    function withGuides(piece) {
+      const src = piece.canvas, W = src.width, H = src.height;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(src, 0, 0);
+      const lw = Math.max(1, W / 256);
+      ctx.lineWidth = lw;
+      const line = (x0, y0, x1, y1, color, dash) => {
+        ctx.strokeStyle = color; ctx.setLineDash(dash ? [lw * 4, lw * 3] : []);
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      };
+      const p = piece.place;
+      ctx.globalAlpha = 0.85;
+      line(p.dx, p.dy, p.dx + p.dw, p.dy, '#999', true);                 // 내용 영역
+      line(p.dx, p.dy + p.dh, p.dx + p.dw, p.dy + p.dh, '#999', true);
+      line(p.dx, p.dy, p.dx, p.dy + p.dh, '#999', true);
+      line(p.dx + p.dw, p.dy, p.dx + p.dw, p.dy + p.dh, '#999', true);
+      if (fitMode() === 'char') {
+        const kx = W / 128, ky = H / 128;
+        const feet = num('sp-feet', 120) * ky, top = feet - num('sp-height', 108) * ky;
+        const m = num('sp-margin', 4) * kx, wall = num('sp-wall', 22) * kx;
+        line(0, feet, W, feet, '#e24b4a');                  // 발바닥 선
+        line(0, top, W, top, '#378add', true);              // 머리 꼭대기
+        line(W / 2, 0, W / 2, H, '#3a9a4a', true);          // 가운데
+        line(m, 0, m, H, '#bbb', true); line(W - m, 0, W - m, H, '#bbb', true);
+        line(wall, 0, wall, H, '#e8a33d', true);            // 벽 동작 왼쪽
+      } else {
+        line(W / 2, 0, W / 2, H, '#3a9a4a', true);
+        line(0, H / 2, W, H / 2, '#3a9a4a', true);
+      }
+      return c;
     }
 
     function updatePreview() {
       if (!imgSrc) return;
       const segs = getSegments();
-      if (segs.length === 1) {
+      if (segs.length === 1 && !fitOn()) {
         emptyMsg.style.display = 'block';
         previewRow.style.display = 'none';
         return;
@@ -594,37 +696,70 @@
       emptyMsg.style.display = 'none';
       previewRow.style.display = 'flex';
       previewRow.innerHTML = '';
+      pieceOpts.length = segs.length;
 
       const fit = fitOn();
       document.getElementById('preview-title').textContent = fit
-        ? '고정 크기 미리보기 (' + document.getElementById('fit-w').value + '×' + document.getElementById('fit-h').value + 'px · 확대 표시, 체크무늬 = 투명)'
+        ? '칸 미리보기 (' + num('fit-w', 512) + '×' + num('fit-h', 512) + 'px · 체크무늬 = 투명)'
         : (splitDir === 'h' ? '가로 배치 미리보기 (높이 균일 · 300px 기준)' : '세로 배치 미리보기 (너비 균일 · 300px 기준)');
-      getPieces().forEach((raw, i) => {
-        // 고정 크기 모드는 실제 크기를 확대해서 보여줌 (중앙 확인용)
-        const resized = fit ? raw : resizeTo(raw, PREVIEW_H);
-        const col = document.createElement('div');
-        col.className = 'preview-seg';
-        col.innerHTML = '<div class="seg-label">' + (i+1) + '번</div>';
-        const img = document.createElement('img');
-        img.src = resized.toDataURL('image/png');
-        if (fit) {
-          const z = Math.min(2, 240 / Math.max(raw.width, raw.height)) || 1;
-          img.style.width = Math.round(raw.width * Math.max(1, z)) + 'px';
-          img.style.height = Math.round(raw.height * Math.max(1, z)) + 'px';
-          img.className = 'checker';
-          img.title = raw.width + '×' + raw.height + 'px';
-        } else {
+
+      if (!fit) {
+        segs.forEach((seg, i) => {
+          const resized = resizeTo(cropToCanvas(seg.from, seg.to), PREVIEW_H);
+          const col = document.createElement('div');
+          col.className = 'preview-seg';
+          col.innerHTML = '<div class="seg-label">' + (i+1) + '번</div>';
+          const img = document.createElement('img');
+          img.src = resized.toDataURL('image/png');
           img.style.height = resized.height + 'px';
           img.style.width = resized.width + 'px';
-        }
+          img.alt = '조각 ' + (i+1);
+          col.appendChild(img);
+          previewRow.appendChild(col);
+        });
+        return;
+      }
+
+      const raws = segs.map(seg => cropToCanvas(seg.from, seg.to));
+      const pieces = fitPieces(raws);
+      const guide = document.getElementById('fit-guide').checked;
+      const showChar = fitMode() === 'char';
+      pieces.forEach((pc, i) => {
+        const col = document.createElement('div');
+        col.className = 'preview-seg';
+        col.style.flexDirection = 'column';
+        col.style.alignItems = 'flex-start';
+        const head = document.createElement('div');
+        head.className = 'seg-label';
+        head.style.cssText = 'display:flex; gap:6px; align-items:center; font-size:11px; color:#666';
+        head.innerHTML = '<b>' + (i+1) + '번</b>' +
+          (showChar ? '<select data-i="' + i + '" class="pose-sel" style="font-size:11px">' +
+            '<option value="floor">서기·바닥</option><option value="wall">왼쪽 벽 (매달리기·기어오르기)</option><option value="center">중앙</option></select>' : '') +
+          '<label style="display:inline-flex;gap:3px;align-items:center"><input type="checkbox" class="flip-chk" data-i="' + i + '"> 좌우 뒤집기</label>' +
+          (pc.overflow ? '<span style="color:#e24b4a">⚠ 칸을 넘어요</span>' : '');
+        col.appendChild(head);
+        const img = document.createElement('img');
+        img.src = (guide ? withGuides(pc) : pc.canvas).toDataURL('image/png');
+        const size = Math.min(256, Math.max(pc.canvas.width, 128));
+        img.style.width = size + 'px';
+        img.style.height = Math.round(size * pc.canvas.height / pc.canvas.width) + 'px';
+        img.className = 'checker';
         img.alt = '조각 ' + (i+1);
         col.appendChild(img);
         previewRow.appendChild(col);
+        const sel = head.querySelector('.pose-sel');
+        if (sel) {
+          sel.value = pieceOpt(i).pose;
+          sel.onchange = () => { pieceOpt(i).pose = sel.value; resultArea.style.display = 'none'; updatePreview(); };
+        }
+        const chk = head.querySelector('.flip-chk');
+        chk.checked = pieceOpt(i).flip;
+        chk.onchange = () => { pieceOpt(i).flip = chk.checked; resultArea.style.display = 'none'; updatePreview(); };
       });
     }
 
     function finalize() {
-      if (!imgSrc || cutLines.length === 0) {
+      if (!imgSrc || (cutLines.length === 0 && !fitOn())) {
         alert('이미지를 업로드하고 분할선을 하나 이상 추가해주세요.');
         return;
       }
@@ -685,7 +820,7 @@
     }
 
     function checkReady() {
-      if (!imgSrc || cutLines.length === 0) {
+      if (!imgSrc || (cutLines.length === 0 && !fitOn())) {
         alert('이미지를 업로드하고 분할선을 하나 이상 추가해주세요.');
         return false;
       }
