@@ -46,7 +46,7 @@
       overflow-x: hidden;
       position: relative;
     }
-    #upload-area {
+    #upload-area, .upload-area {
       width: 100%;
       height: 100%;
       display: flex;
@@ -59,8 +59,8 @@
       font-size: 14px;
       transition: background 0.15s;
     }
-    #upload-area:hover { background: #fafafa; }
-    #upload-area svg { width: 36px; height: 36px; stroke: #ccc; }
+    #upload-area:hover, .upload-area:hover, .upload-area.drag { background: #fafafa; }
+    #upload-area svg, .upload-area svg { width: 36px; height: 36px; stroke: #ccc; }
     #img-canvas-wrap {
       position: relative;
       display: none;
@@ -140,7 +140,9 @@
       color: #fff;
       border-color: #1a1a1a;
     }
-    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:hover { background: #1a1a1a; opacity: 0.85; }
+    .btn:disabled:hover { background: transparent; opacity: 0.4; }
+    .btn-primary:disabled:hover { background: #1a1a1a; }
     .empty-preview {
       font-size: 13px;
       color: #aaa;
@@ -166,12 +168,64 @@
       border: 0.5px solid #ddd;
       border-radius: 4px;
     }
+    /* ── 탭 ── */
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+    .tab {
+      font-size: 13px; padding: 7px 16px; border-radius: 8px;
+      border: 0.5px solid #ccc; background: #fff; color: #555; cursor: pointer;
+    }
+    .tab.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+    /* ── 배경 제거 ── */
+    .bg-stage {
+      flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
+      padding: 12px; position: relative;
+    }
+    .bg-stage img { max-width: 100%; max-height: 100%; display: block; }
+    #bg-src-img.pickable { cursor: crosshair; }
+    .checker {
+      background-color: #fff;
+      background-image:
+        linear-gradient(45deg, #e6e6e6 25%, transparent 25%),
+        linear-gradient(-45deg, #e6e6e6 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #e6e6e6 75%),
+        linear-gradient(-45deg, transparent 75%, #e6e6e6 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    }
+    .opts {
+      display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+      padding: 10px 14px; border-top: 0.5px solid #eee; font-size: 12px; color: #555;
+      flex-shrink: 0;
+    }
+    .opts label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+    .opts input[type=range] { width: 110px; }
+    .swatch {
+      display: inline-block; width: 14px; height: 14px; border-radius: 3px;
+      border: 0.5px solid #aaa; vertical-align: middle;
+    }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid #ddd; border-top-color: #1a1a1a;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .bg-busy { display: none; flex-direction: column; align-items: center; gap: 10px; color: #888; font-size: 13px; }
+    @media (max-width: 720px) {
+      .wrap { flex-direction: column; height: auto; }
+      .panel { min-height: 420px; }
+    }
   </style>
 </head>
 <body>
-  <h1>이미지 분할 도구</h1>
+  <h1>이미지 도구</h1>
 
-  <div class="wrap">
+  <div class="tabs">
+    <button class="tab active" data-tab="split" onclick="switchTab('split')">이미지 분할</button>
+    <button class="tab" data-tab="bg" onclick="switchTab('bg')">배경 제거</button>
+  </div>
+
+  <div class="wrap" id="tab-split">
     <!-- 왼쪽: 원본 이미지 -->
     <div class="panel">
       <div class="panel-title">원본 이미지 — 클릭해서 분할선 추가 / 분할선 클릭하면 삭제</div>
@@ -208,6 +262,62 @@
     </div>
   </div>
 
+
+  <!-- ───────── 배경 제거 탭 ───────── -->
+  <div class="wrap" id="tab-bg" style="display:none">
+    <div class="panel">
+      <div class="panel-title" id="bg-src-title">원본 이미지</div>
+      <div class="canvas-wrap" style="display:flex">
+        <div id="bg-upload-area" class="upload-area" onclick="document.getElementById('bg-file-input').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12M8 8l4-4 4 4"/>
+          </svg>
+          <span>클릭하거나 이미지를 끌어다 놓기</span>
+          <span style="font-size:12px">JPG, PNG, WEBP 지원</span>
+        </div>
+        <div class="bg-stage" id="bg-src-stage" style="display:none">
+          <img id="bg-src-img" alt="원본 이미지" />
+        </div>
+      </div>
+      <div class="opts">
+        <span>방식</span>
+        <label><input type="radio" name="bg-mode" value="ai" checked onchange="onBgModeChange()"> AI 자동</label>
+        <label><input type="radio" name="bg-mode" value="color" onchange="onBgModeChange()"> 단색 배경</label>
+        <span id="bg-color-opts" style="display:none; gap:10px; align-items:center; flex-wrap:wrap">
+          <span>배경색 <span class="swatch" id="bg-swatch"></span></span>
+          <label>허용 범위 <input type="range" id="bg-tol" min="1" max="120" value="32" oninput="bgTolVal.textContent=this.value"> <span id="bg-tol-val">32</span></label>
+          <label><input type="checkbox" id="bg-contig" checked> 가장자리와 이어진 영역만</label>
+        </span>
+      </div>
+      <div class="bottom">
+        <span class="hint" id="bg-hint">이미지를 업로드해주세요</span>
+        <button class="btn" onclick="bgReset()">초기화</button>
+        <button class="btn btn-primary" id="bg-run-btn" onclick="bgRun()" disabled>배경 제거</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">결과 (체크무늬 = 투명)</div>
+      <div class="bg-stage checker" id="bg-out-stage">
+        <div class="empty-preview" id="bg-out-empty">배경 제거 결과가<br>여기에 나타나요</div>
+        <div class="bg-busy" id="bg-busy"><div class="spinner"></div><span id="bg-busy-text">처리 중…</span></div>
+        <img id="bg-out-img" alt="배경 제거 결과" style="display:none" />
+      </div>
+      <div class="opts">
+        <span>저장 배경</span>
+        <label><input type="radio" name="bg-fill" value="" checked onchange="bgRenderOutput()"> 투명</label>
+        <label><input type="radio" name="bg-fill" value="#ffffff" onchange="bgRenderOutput()"> 흰색</label>
+        <label><input type="radio" name="bg-fill" value="custom" onchange="bgRenderOutput()"> 직접 <input type="color" id="bg-fill-color" value="#f2e8d5" oninput="document.querySelector('input[name=bg-fill][value=custom]').checked=true; bgRenderOutput()"></label>
+      </div>
+      <div class="bottom">
+        <span class="hint">PNG로 저장하면 투명 배경이 유지돼요</span>
+        <button class="btn" id="bg-send-btn" onclick="bgSendToSplit()" disabled>분할 도구로 보내기</button>
+        <button class="btn btn-primary" id="bg-dl-btn" onclick="bgDownload()" disabled>PNG 다운로드</button>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="bg-file-input" accept="image/*" style="display:none" onchange="bgLoadFile(this.files[0])" />
+
   <input type="file" id="file-input" accept="image/*" style="display:none" onchange="loadImage(event)" />
 
   <script>
@@ -229,8 +339,12 @@
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = function(ev) {
-        imgSrc = ev.target.result;
+      reader.onload = function(ev) { loadImageSrc(ev.target.result); };
+      reader.readAsDataURL(file);
+    }
+
+    function loadImageSrc(src) {
+        imgSrc = src;
         naturalImg = new Image();
         naturalImg.onload = function() {
           imgEl.src = imgSrc;
@@ -244,8 +358,6 @@
           };
         };
         naturalImg.src = imgSrc;
-      };
-      reader.readAsDataURL(file);
     }
 
     imgWrap.addEventListener('click', function(e) {
@@ -377,6 +489,278 @@
       resultArea.style.display = 'none';
       hintText.textContent = '분할선: 0개';
       document.getElementById('file-input').value = '';
+    }
+    /* ───────── 탭 전환 ───────── */
+    function switchTab(name) {
+      document.getElementById('tab-split').style.display = name === 'split' ? 'flex' : 'none';
+      document.getElementById('tab-bg').style.display = name === 'bg' ? 'flex' : 'none';
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    }
+
+    /* ───────── 배경 제거 ───────── */
+    // AI 모드: @imgly/background-removal (브라우저 안에서 실행, 이미지가 서버로 전송되지 않음)
+    const BG_LIB_URL = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm';
+    let bgLib = null;
+    let bgSrcImg = new Image();
+    let bgSrcLoaded = false;
+    let bgCutCanvas = null;      // 투명 배경 결과
+    let bgPickColor = null;      // 단색 모드: 사용자가 클릭한 배경색 [r,g,b]
+    let bgBusy = false;
+    const bgTolVal = document.getElementById('bg-tol-val');
+    const $ = id => document.getElementById(id);
+
+    function bgMode() { return document.querySelector('input[name=bg-mode]:checked').value; }
+
+    function onBgModeChange() {
+      const color = bgMode() === 'color';
+      $('bg-color-opts').style.display = color ? 'inline-flex' : 'none';
+      $('bg-src-img').classList.toggle('pickable', color);
+      $('bg-src-title').textContent = color ? '원본 이미지 — 클릭하면 그 색을 배경색으로 지정' : '원본 이미지';
+      if (color && bgSrcLoaded && !bgPickColor) bgPickColor = bgEdgeColor();
+      bgUpdateSwatch();
+    }
+
+    function bgUpdateSwatch() {
+      const c = bgPickColor;
+      $('bg-swatch').style.background = c ? `rgb(${c[0]},${c[1]},${c[2]})` : 'transparent';
+    }
+
+    function bgLoadFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        bgSrcImg = new Image();
+        bgSrcImg.onload = () => {
+          bgSrcLoaded = true;
+          bgCutCanvas = null;
+          $('bg-src-img').src = ev.target.result;
+          $('bg-upload-area').style.display = 'none';
+          $('bg-src-stage').style.display = 'flex';
+          $('bg-run-btn').disabled = false;
+          $('bg-hint').textContent = bgSrcImg.naturalWidth + ' × ' + bgSrcImg.naturalHeight + 'px';
+          bgPickColor = bgEdgeColor();
+          bgUpdateSwatch();
+          bgShowOutput(null);
+        };
+        bgSrcImg.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 드래그 앤 드롭 / 붙여넣기
+    (function () {
+      const panel = $('tab-bg');
+      const area = $('bg-upload-area');
+      panel.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('drag'); });
+      panel.addEventListener('dragleave', () => area.classList.remove('drag'));
+      panel.addEventListener('drop', e => {
+        e.preventDefault(); area.classList.remove('drag');
+        bgLoadFile(e.dataTransfer.files[0]);
+      });
+      document.addEventListener('paste', e => {
+        if ($('tab-bg').style.display === 'none') return;
+        const item = [...e.clipboardData.items].find(i => i.type.startsWith('image/'));
+        if (item) bgLoadFile(item.getAsFile());
+      });
+    })();
+
+    // 단색 모드: 원본 클릭으로 배경색 지정
+    $('bg-src-img').addEventListener('click', e => {
+      if (bgMode() !== 'color' || !bgSrcLoaded) return;
+      const r = e.target.getBoundingClientRect();
+      const x = Math.floor((e.clientX - r.left) / r.width * bgSrcImg.naturalWidth);
+      const y = Math.floor((e.clientY - r.top) / r.height * bgSrcImg.naturalHeight);
+      const c = document.createElement('canvas'); c.width = c.height = 1;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(bgSrcImg, x, y, 1, 1, 0, 0, 1, 1);
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      bgPickColor = [d[0], d[1], d[2]];
+      bgUpdateSwatch();
+    });
+
+    function bgSourceCanvas() {
+      const c = document.createElement('canvas');
+      c.width = bgSrcImg.naturalWidth; c.height = bgSrcImg.naturalHeight;
+      c.getContext('2d').drawImage(bgSrcImg, 0, 0);
+      return c;
+    }
+
+    // 가장자리 픽셀 중 가장 흔한 색(양자화)을 배경색으로 추정
+    function bgEdgeColor() {
+      const c = bgSourceCanvas(), w = c.width, h = c.height;
+      const d = c.getContext('2d').getImageData(0, 0, w, h).data;
+      const buckets = new Map();
+      const add = (x, y) => {
+        const i = (y * w + x) * 4;
+        const key = (d[i] >> 4) << 8 | (d[i+1] >> 4) << 4 | (d[i+2] >> 4);
+        const b = buckets.get(key) || [0, 0, 0, 0];
+        b[0] += d[i]; b[1] += d[i+1]; b[2] += d[i+2]; b[3]++;
+        buckets.set(key, b);
+      };
+      const stepX = Math.max(1, Math.floor(w / 200)), stepY = Math.max(1, Math.floor(h / 200));
+      for (let x = 0; x < w; x += stepX) { add(x, 0); add(x, h - 1); }
+      for (let y = 0; y < h; y += stepY) { add(0, y); add(w - 1, y); }
+      let best = null;
+      buckets.forEach(b => { if (!best || b[3] > best[3]) best = b; });
+      return [best[0] / best[3], best[1] / best[3], best[2] / best[3]].map(Math.round);
+    }
+
+    function bgRemoveColor() {
+      const c = bgSourceCanvas(), w = c.width, h = c.height;
+      const ctx = c.getContext('2d');
+      const img = ctx.getImageData(0, 0, w, h), d = img.data;
+      const [br, bgc, bb] = bgPickColor || bgEdgeColor();
+      const tol = +$('bg-tol').value;
+      const soft = Math.max(8, tol * 0.5);       // 경계 부드럽게
+      const n = w * h;
+      const dist = new Float32Array(n);
+      for (let p = 0, i = 0; p < n; p++, i += 4) {
+        const dr = d[i] - br, dg = d[i+1] - bgc, db = d[i+2] - bb;
+        dist[p] = Math.sqrt(dr*dr + dg*dg + db*db);
+      }
+      const removed = new Uint8Array(n);
+      if ($('bg-contig').checked) {
+        // 가장자리에서 시작하는 flood fill
+        const stack = new Int32Array(n);
+        let sp = 0;
+        const push = p => { if (!removed[p] && dist[p] <= tol) { removed[p] = 1; stack[sp++] = p; } };
+        for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+        for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+        while (sp) {
+          const p = stack[--sp], x = p % w;
+          if (x > 0) push(p - 1);
+          if (x < w - 1) push(p + 1);
+          if (p >= w) push(p - w);
+          if (p < n - w) push(p + w);
+        }
+      } else {
+        for (let p = 0; p < n; p++) if (dist[p] <= tol) removed[p] = 1;
+      }
+      for (let p = 0; p < n; p++) {
+        if (removed[p]) { d[p * 4 + 3] = 0; continue; }
+        // 제거 영역과 맞닿은 픽셀은 색 차이에 따라 반투명 처리
+        const x = p % w;
+        const edge = (x > 0 && removed[p-1]) || (x < w-1 && removed[p+1]) ||
+                     (p >= w && removed[p-w]) || (p < n-w && removed[p+w]);
+        if (edge && dist[p] < tol + soft) {
+          d[p * 4 + 3] = Math.round(d[p * 4 + 3] * (dist[p] - tol) / soft);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return c;
+    }
+
+    async function bgRemoveAI() {
+      if (!bgLib) {
+        $('bg-busy-text').textContent = 'AI 모듈 불러오는 중…';
+        bgLib = await import(BG_LIB_URL);
+      }
+      const blob = await new Promise(r => bgSourceCanvas().toBlob(r, 'image/png'));
+      const out = await bgLib.removeBackground(blob, {
+        output: { format: 'image/png' },
+        progress: (key, cur, total) => {
+          if (key.startsWith('fetch')) {
+            $('bg-busy-text').textContent = 'AI 모델 다운로드 중… ' + (total ? Math.round(cur / total * 100) + '%' : '') +
+              ' (처음 한 번만)';
+          } else {
+            $('bg-busy-text').textContent = '배경 분석 중…';
+          }
+        }
+      });
+      const bmp = await createImageBitmap(out);
+      const c = document.createElement('canvas');
+      c.width = bmp.width; c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      return c;
+    }
+
+    async function bgRun() {
+      if (!bgSrcLoaded || bgBusy) return;
+      bgBusy = true;
+      $('bg-run-btn').disabled = true;
+      $('bg-out-empty').style.display = 'none';
+      $('bg-out-img').style.display = 'none';
+      $('bg-busy').style.display = 'flex';
+      $('bg-busy-text').textContent = '처리 중…';
+      await new Promise(r => setTimeout(r, 30)); // 스피너 먼저 그리기
+      const t0 = performance.now();
+      try {
+        bgCutCanvas = bgMode() === 'ai' ? await bgRemoveAI() : bgRemoveColor();
+        $('bg-hint').textContent = '완료 (' + ((performance.now() - t0) / 1000).toFixed(1) + '초)';
+        bgShowOutput(bgCutCanvas);
+      } catch (err) {
+        console.error(err);
+        bgShowOutput(null);
+        alert('배경 제거에 실패했어요.\n' +
+          (bgMode() === 'ai' ? 'AI 모드는 인터넷 연결이 필요해요. 단색 배경 모드를 사용해 보세요.\n' : '') +
+          '(' + (err && err.message || err) + ')');
+      } finally {
+        bgBusy = false;
+        $('bg-run-btn').disabled = false;
+        $('bg-busy').style.display = 'none';
+      }
+    }
+
+    function bgFill() {
+      const v = document.querySelector('input[name=bg-fill]:checked').value;
+      return v === 'custom' ? $('bg-fill-color').value : v;
+    }
+
+    function bgFinalCanvas() {
+      if (!bgCutCanvas) return null;
+      const fill = bgFill();
+      if (!fill) return bgCutCanvas;
+      const c = document.createElement('canvas');
+      c.width = bgCutCanvas.width; c.height = bgCutCanvas.height;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = fill; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(bgCutCanvas, 0, 0);
+      return c;
+    }
+
+    function bgShowOutput(canvas) {
+      const has = !!canvas;
+      $('bg-out-img').style.display = has ? 'block' : 'none';
+      $('bg-out-empty').style.display = has ? 'none' : 'block';
+      $('bg-dl-btn').disabled = !has;
+      $('bg-send-btn').disabled = !has;
+      if (has) bgRenderOutput();
+    }
+
+    function bgRenderOutput() {
+      const c = bgFinalCanvas();
+      if (c) $('bg-out-img').src = c.toDataURL('image/png');
+    }
+
+    function bgDownload() {
+      const c = bgFinalCanvas();
+      if (!c) return;
+      c.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'background-removed.png';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }, 'image/png');
+    }
+
+    function bgSendToSplit() {
+      const c = bgFinalCanvas();
+      if (!c) return;
+      switchTab('split');
+      loadImageSrc(c.toDataURL('image/png'));
+    }
+
+    function bgReset() {
+      bgSrcLoaded = false; bgCutCanvas = null; bgPickColor = null;
+      $('bg-src-img').src = '';
+      $('bg-src-stage').style.display = 'none';
+      $('bg-upload-area').style.display = 'flex';
+      $('bg-run-btn').disabled = true;
+      $('bg-hint').textContent = '이미지를 업로드해주세요';
+      $('bg-file-input').value = '';
+      bgUpdateSwatch();
+      bgShowOutput(null);
     }
   </script>
 </body>
