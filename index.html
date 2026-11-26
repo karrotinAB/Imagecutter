@@ -253,6 +253,16 @@
           <span>칸으로</span>
           <button class="btn" style="padding:3px 10px; font-size:12px" onclick="equalSplit()">똑같이 나누기</button>
         </div>
+        <div class="split-dir">
+          <label><input type="checkbox" id="fit-on" onchange="onFitChange()"> 고정 크기 칸에 맞추기</label>
+          <span id="fit-opts" style="display:none; gap:6px; align-items:center; flex-wrap:wrap">
+            <input type="number" id="fit-w" min="8" max="4096" value="128" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> ×
+            <input type="number" id="fit-h" min="8" max="4096" value="128" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px
+            <span style="margin-left:6px">여백</span>
+            <input type="number" id="fit-pad" min="0" max="200" value="4" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px" onchange="onFitChange()"> px
+            <label style="margin-left:6px" title="끄면 조각마다 각각 칸에 꽉 차게 맞춰요"><input type="checkbox" id="fit-same" checked onchange="onFitChange()"> 모든 조각 같은 비율</label>
+          </span>
+        </div>
       </div>
       <div class="canvas-wrap" id="canvas-wrap">
         <div id="upload-area" onclick="document.getElementById('file-input').click()">
@@ -499,6 +509,80 @@
       return c;
     }
 
+    /* ───────── 고정 크기 칸 맞추기 ───────── */
+    function fitOn() { return document.getElementById('fit-on').checked; }
+
+    function onFitChange() {
+      document.getElementById('fit-opts').style.display = fitOn() ? 'inline-flex' : 'none';
+      resultArea.style.display = 'none';
+      updatePreview();
+    }
+
+    // 조각의 배경(가장자리에서 가장 흔한 색, 또는 투명)을 기준으로 내용 영역(bbox)을 찾음
+    function contentBox(c) {
+      const w = c.width, h = c.height;
+      const d = c.getContext('2d').getImageData(0, 0, w, h).data;
+      const counts = new Map();
+      const sample = (x, y) => {
+        const i = (y * w + x) * 4;
+        const key = d[i+3] < 20 ? 'T' : (d[i] >> 4) + ',' + (d[i+1] >> 4) + ',' + (d[i+2] >> 4);
+        const v = counts.get(key) || { n: 0, i };
+        v.n++; counts.set(key, v);
+      };
+      const sx = Math.max(1, w >> 7), sy = Math.max(1, h >> 7);
+      for (let x = 0; x < w; x += sx) { sample(x, 0); sample(x, h - 1); }
+      for (let y = 0; y < h; y += sy) { sample(0, y); sample(w - 1, y); }
+      let bgKey = null, bgI = 0, best = 0;
+      counts.forEach((v, k) => { if (v.n > best) { best = v.n; bgKey = k; bgI = v.i; } });
+      const transparentBg = bgKey === 'T';
+      const br = d[bgI], bgc = d[bgI+1], bb = d[bgI+2];
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (d[i+3] < 20) continue;
+          if (!transparentBg) {
+            const dr = d[i] - br, dg = d[i+1] - bgc, db = d[i+2] - bb;
+            if (dr*dr + dg*dg + db*db < 40*40) continue;
+          }
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+      const fill = transparentBg ? null : 'rgb(' + br + ',' + bgc + ',' + bb + ')';
+      if (x1 < 0) return { x: 0, y: 0, w, h, fill };   // 내용 없음 → 전체
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, fill };
+    }
+
+    function fitPieces(raws) {
+      const W = Math.max(1, +document.getElementById('fit-w').value || 128);
+      const H = Math.max(1, +document.getElementById('fit-h').value || 128);
+      const pad = Math.max(0, +document.getElementById('fit-pad').value || 0);
+      const boxes = raws.map(contentBox);
+      const scaleOf = b => Math.min((W - 2 * pad) / b.w, (H - 2 * pad) / b.h);
+      const common = Math.min(...boxes.map(scaleOf));   // 가장 큰 조각 기준 → 캐릭터 크기 통일
+      const same = document.getElementById('fit-same').checked;
+      return raws.map((raw, i) => {
+        const b = boxes[i];
+        const sc = same ? common : scaleOf(b);
+        const dw = b.w * sc, dh = b.h * sc;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const ctx = c.getContext('2d');
+        if (b.fill) { ctx.fillStyle = b.fill; ctx.fillRect(0, 0, W, H); }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(raw, b.x, b.y, b.w, b.h, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        return c;
+      });
+    }
+
+    // 저장·미리보기에 쓰는 최종 조각들
+    function getPieces() {
+      const raws = getSegments().map(seg => cropToCanvas(seg.from, seg.to));
+      return fitOn() ? fitPieces(raws) : raws;
+    }
+
     function updatePreview() {
       if (!imgSrc) return;
       const segs = getSegments();
@@ -511,16 +595,28 @@
       previewRow.style.display = 'flex';
       previewRow.innerHTML = '';
 
-      segs.forEach((seg, i) => {
-        const raw = cropToCanvas(seg.from, seg.to);
-        const resized = resizeTo(raw, PREVIEW_H);
+      const fit = fitOn();
+      document.getElementById('preview-title').textContent = fit
+        ? '고정 크기 미리보기 (' + document.getElementById('fit-w').value + '×' + document.getElementById('fit-h').value + 'px · 확대 표시, 체크무늬 = 투명)'
+        : (splitDir === 'h' ? '가로 배치 미리보기 (높이 균일 · 300px 기준)' : '세로 배치 미리보기 (너비 균일 · 300px 기준)');
+      getPieces().forEach((raw, i) => {
+        // 고정 크기 모드는 실제 크기를 확대해서 보여줌 (중앙 확인용)
+        const resized = fit ? raw : resizeTo(raw, PREVIEW_H);
         const col = document.createElement('div');
         col.className = 'preview-seg';
         col.innerHTML = '<div class="seg-label">' + (i+1) + '번</div>';
         const img = document.createElement('img');
         img.src = resized.toDataURL('image/png');
-        img.style.height = resized.height + 'px';
-        img.style.width = resized.width + 'px';
+        if (fit) {
+          const z = Math.min(2, 240 / Math.max(raw.width, raw.height)) || 1;
+          img.style.width = Math.round(raw.width * Math.max(1, z)) + 'px';
+          img.style.height = Math.round(raw.height * Math.max(1, z)) + 'px';
+          img.className = 'checker';
+          img.title = raw.width + '×' + raw.height + 'px';
+        } else {
+          img.style.height = resized.height + 'px';
+          img.style.width = resized.width + 'px';
+        }
         img.alt = '조각 ' + (i+1);
         col.appendChild(img);
         previewRow.appendChild(col);
@@ -534,13 +630,16 @@
       }
       const final = buildMerged();
       resultImg.src = final.toDataURL('image/png');
+      // 작은 결과(고정 크기 모드)는 과하게 늘어나지 않도록 최대 2배까지만 확대해서 표시
+      resultImg.style.width = fitOn() ? Math.min(final.width * 2, 600) + 'px' : '';
+      resultImg.style.maxWidth = '100%';
       resultArea.style.display = 'flex';
       setTimeout(() => resultArea.scrollIntoView({ behavior: 'smooth' }), 100);
     }
 
     function buildMerged() {
-      const segs = getSegments();
-      const rawCanvases = segs.map(seg => cropToCanvas(seg.from, seg.to));
+      const rawCanvases = getPieces();
+      const fillWhite = !fitOn();   // 고정 크기 모드는 조각 배경(투명 포함) 유지
       let final;
       if (splitDir === 'h') {
         const minH = Math.min(...rawCanvases.map(c => c.height));
@@ -549,8 +648,7 @@
         final.width = normalized.reduce((s, c) => s + c.width, 0);
         final.height = minH;
         const ctx = final.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, final.width, final.height);
+        if (fillWhite) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, final.width, final.height); }
         let x = 0;
         normalized.forEach(c => { ctx.drawImage(c, x, 0); x += c.width; });
       } else {
@@ -560,8 +658,7 @@
         final.width = minW;
         final.height = normalized.reduce((s, c) => s + c.height, 0);
         const ctx = final.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, final.width, final.height);
+        if (fillWhite) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, final.width, final.height); }
         let y = 0;
         normalized.forEach(c => { ctx.drawImage(c, 0, y); y += c.height; });
       }
@@ -599,10 +696,10 @@
     async function saveSegments() {
       if (!checkReady()) return;
       const title = saveTitle();
-      const segs = getSegments();
-      const pad = String(segs.length).length < 2 ? 2 : String(segs.length).length;
-      for (let i = 0; i < segs.length; i++) {
-        const c = cropToCanvas(segs[i].from, segs[i].to);
+      const pieces = getPieces();
+      const pad = String(pieces.length).length < 2 ? 2 : String(pieces.length).length;
+      for (let i = 0; i < pieces.length; i++) {
+        const c = pieces[i];
         await downloadCanvas(c, title + '_' + String(i + 1).padStart(pad, '0') + '.png');
         await new Promise(r => setTimeout(r, 250)); // 브라우저가 연속 다운로드를 막지 않도록 간격
       }
