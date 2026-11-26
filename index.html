@@ -80,6 +80,18 @@
       z-index: 10;
     }
     .cut-line:hover { background: #a32d2d; }
+    .cut-line.vert {
+      top: 0; bottom: 0; left: auto; right: auto;
+      width: 2px; height: auto;
+      flex-direction: column; justify-content: flex-start;
+      padding: 4px 0 0 0;
+    }
+    .cut-line.vert .cut-x { transform: translateX(-50%); margin-left: 1px; white-space: nowrap; }
+    .preview-row.col { flex-direction: column; align-items: flex-start; }
+    .preview-row.col .preview-seg { display: flex; align-items: center; gap: 6px; }
+    .preview-row.col .seg-label { margin: 0; min-width: 24px; }
+    .split-dir { display: flex; gap: 14px; align-items: center; font-size: 12px; color: #555; }
+    .split-dir label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .cut-x {
       font-size: 11px;
       color: white;
@@ -229,6 +241,19 @@
     <!-- 왼쪽: 원본 이미지 -->
     <div class="panel">
       <div class="panel-title">원본 이미지 — 클릭해서 분할선 추가 / 분할선 클릭하면 삭제</div>
+      <div class="opts" style="border-top:none; border-bottom:0.5px solid #eee; flex-direction:column; align-items:flex-start; gap:8px">
+        <div class="split-dir">
+          <span>분할 방향</span>
+          <label><input type="radio" name="split-dir" value="h" checked onchange="setSplitDir(this.value)"> 가로선으로 자르기 → 옆으로 붙이기</label>
+          <label><input type="radio" name="split-dir" value="v" onchange="setSplitDir(this.value)"> 세로선으로 자르기 → 위아래로 쌓기</label>
+        </div>
+        <div class="split-dir">
+          <span>균등 분할</span>
+          <input type="number" id="equal-n" min="2" max="50" value="3" style="width:56px; padding:3px 6px; border:0.5px solid #ccc; border-radius:6px; font-size:12px">
+          <span>칸으로</span>
+          <button class="btn" style="padding:3px 10px; font-size:12px" onclick="equalSplit()">똑같이 나누기</button>
+        </div>
+      </div>
       <div class="canvas-wrap" id="canvas-wrap">
         <div id="upload-area" onclick="document.getElementById('file-input').click()">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -250,7 +275,7 @@
 
     <!-- 오른쪽: 미리보기 -->
     <div class="panel">
-      <div class="panel-title">가로 배치 미리보기 (높이 균일 · 300px 기준)</div>
+      <div class="panel-title" id="preview-title">가로 배치 미리보기 (높이 균일 · 300px 기준)</div>
       <div class="preview-wrap" id="preview-wrap">
         <div class="empty-preview" id="empty-msg">이미지를 업로드하고<br>분할선을 추가하면<br>미리보기가 나타나요</div>
         <div class="preview-row" id="preview-row" style="display:none"></div>
@@ -332,6 +357,19 @@
     let resultImg = document.getElementById('result-img');
     let hintText = document.getElementById('hint-text');
     let cutLines = [];
+    let splitDir = 'h';   // 'h': 가로선으로 잘라 옆으로 붙이기, 'v': 세로선으로 잘라 위아래로 쌓기
+
+    function setSplitDir(dir) {
+      splitDir = dir;
+      cutLines = [];
+      resultArea.style.display = 'none';
+      document.getElementById('preview-title').textContent = dir === 'h'
+        ? '가로 배치 미리보기 (높이 균일 · 300px 기준)'
+        : '세로 배치 미리보기 (너비 균일 · 300px 기준)';
+      previewRow.classList.toggle('col', dir === 'v');
+      renderLines();
+      updatePreview();
+    }
     let imgSrc = '';
     let naturalImg = new Image();
 
@@ -363,8 +401,9 @@
     imgWrap.addEventListener('click', function(e) {
       if (e.target.classList.contains('cut-line') || e.target.classList.contains('cut-x')) return;
       const rect = imgWrap.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const pct = y / imgWrap.offsetHeight;
+      const pct = splitDir === 'h'
+        ? (e.clientY - rect.top) / rect.height
+        : (e.clientX - rect.left) / rect.width;
       if (pct < 0.02 || pct > 0.98) return;
       cutLines.push(pct);
       cutLines.sort((a, b) => a - b);
@@ -373,12 +412,24 @@
       updatePreview();
     });
 
+    function equalSplit() {
+      if (!imgSrc) { alert('먼저 이미지를 업로드해주세요.'); return; }
+      const n = Math.round(+document.getElementById('equal-n').value);
+      if (!(n >= 2 && n <= 50)) { alert('2~50 사이의 숫자를 입력해주세요.'); return; }
+      cutLines = [];
+      for (let i = 1; i < n; i++) cutLines.push(i / n);
+      resultArea.style.display = 'none';
+      renderLines();
+      updatePreview();
+    }
+
     function renderLines() {
       document.querySelectorAll('.cut-line').forEach(el => el.remove());
       cutLines.forEach((pct, i) => {
         const line = document.createElement('div');
-        line.className = 'cut-line';
-        line.style.top = (pct * 100) + '%';
+        line.className = 'cut-line' + (splitDir === 'v' ? ' vert' : '');
+        if (splitDir === 'h') line.style.top = (pct * 100) + '%';
+        else line.style.left = (pct * 100) + '%';
         line.innerHTML = '<span class="cut-x">✕ 삭제</span>';
         line.addEventListener('click', function(e) {
           e.stopPropagation();
@@ -401,13 +452,30 @@
     function cropToCanvas(pctFrom, pctTo) {
       const nw = naturalImg.naturalWidth;
       const nh = naturalImg.naturalHeight;
-      const y0 = Math.round(pctFrom * nh);
-      const y1 = Math.round(pctTo * nh);
-      const segH = y1 - y0;
       const c = document.createElement('canvas');
-      c.width = nw;
-      c.height = segH;
-      c.getContext('2d').drawImage(naturalImg, 0, y0, nw, segH, 0, 0, nw, segH);
+      if (splitDir === 'h') {
+        const y0 = Math.round(pctFrom * nh), segH = Math.round(pctTo * nh) - y0;
+        c.width = nw; c.height = segH;
+        c.getContext('2d').drawImage(naturalImg, 0, y0, nw, segH, 0, 0, nw, segH);
+      } else {
+        const x0 = Math.round(pctFrom * nw), segW = Math.round(pctTo * nw) - x0;
+        c.width = segW; c.height = nh;
+        c.getContext('2d').drawImage(naturalImg, x0, 0, segW, nh, 0, 0, segW, nh);
+      }
+      return c;
+    }
+
+    // splitDir에 따라 높이(h) 또는 너비(v)를 target에 맞춰 비율 유지 리사이즈
+    function resizeTo(srcCanvas, target) {
+      if (splitDir === 'h') return resizeCanvas(srcCanvas, target);
+      const ratio = target / srcCanvas.width;
+      const c = document.createElement('canvas');
+      c.width = target;
+      c.height = Math.round(srcCanvas.height * ratio);
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(srcCanvas, 0, 0, c.width, c.height);
       return c;
     }
 
@@ -438,13 +506,13 @@
 
       segs.forEach((seg, i) => {
         const raw = cropToCanvas(seg.from, seg.to);
-        const resized = resizeCanvas(raw, PREVIEW_H);
+        const resized = resizeTo(raw, PREVIEW_H);
         const col = document.createElement('div');
         col.className = 'preview-seg';
         col.innerHTML = '<div class="seg-label">' + (i+1) + '번</div>';
         const img = document.createElement('img');
         img.src = resized.toDataURL('image/png');
-        img.style.height = PREVIEW_H + 'px';
+        img.style.height = resized.height + 'px';
         img.style.width = resized.width + 'px';
         img.alt = '조각 ' + (i+1);
         col.appendChild(img);
@@ -459,18 +527,30 @@
       }
       const segs = getSegments();
       const rawCanvases = segs.map(seg => cropToCanvas(seg.from, seg.to));
-      const minH = Math.min(...rawCanvases.map(c => c.height));
-      const normalized = rawCanvases.map(c => resizeCanvas(c, minH));
-
-      const totalW = normalized.reduce((s, c) => s + c.width, 0);
-      const final = document.createElement('canvas');
-      final.width = totalW;
-      final.height = minH;
-      const ctx = final.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, totalW, minH);
-      let x = 0;
-      normalized.forEach(c => { ctx.drawImage(c, x, 0); x += c.width; });
+      let final;
+      if (splitDir === 'h') {
+        const minH = Math.min(...rawCanvases.map(c => c.height));
+        const normalized = rawCanvases.map(c => resizeTo(c, minH));
+        final = document.createElement('canvas');
+        final.width = normalized.reduce((s, c) => s + c.width, 0);
+        final.height = minH;
+        const ctx = final.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, final.width, final.height);
+        let x = 0;
+        normalized.forEach(c => { ctx.drawImage(c, x, 0); x += c.width; });
+      } else {
+        const minW = Math.min(...rawCanvases.map(c => c.width));
+        const normalized = rawCanvases.map(c => resizeTo(c, minW));
+        final = document.createElement('canvas');
+        final.width = minW;
+        final.height = normalized.reduce((s, c) => s + c.height, 0);
+        const ctx = final.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, final.width, final.height);
+        let y = 0;
+        normalized.forEach(c => { ctx.drawImage(c, 0, y); y += c.height; });
+      }
 
       resultImg.src = final.toDataURL('image/png');
       resultArea.style.display = 'flex';
